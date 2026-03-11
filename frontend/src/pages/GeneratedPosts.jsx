@@ -1,62 +1,78 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PostCard from '../components/PostCard';
 import { Filter, Search } from 'lucide-react';
+import { api } from '../services/api';
 
-const DUMMY_POSTS = [
-  {
-    id: 1,
-    platform: 'Instagram',
-    text: '☀️ Summer is here and so are the deals! Get 30% off our best-selling collection. Limited time only! Shop now via link in bio.',
-    hashtags: '#SummerSale #Fashion #Style #OOTD #ShopNow',
-    createdAt: '2 min ago',
-  },
-  {
-    id: 2,
-    platform: 'LinkedIn',
-    text: "We're proud to announce our Summer 2026 campaign! As businesses evolve, so do we. Discover how our solutions are helping professionals stay ahead of the curve.",
-    hashtags: '#Innovation #Business #Summer2026 #Leadership',
-    createdAt: '2 min ago',
-  },
-  {
-    id: 3,
-    platform: 'Twitter',
-    text: 'Big summer sale is LIVE! 🔥 30% off everything. Use code SUMMER30 at checkout. Link below 👇',
-    hashtags: '#SummerSale #Deals #Sale',
-    createdAt: '2 min ago',
-  },
-  {
-    id: 4,
-    platform: 'Instagram',
-    text: "New season, new look. 🌊 We've refreshed our entire collection with bold summer vibes. Which one is your favorite?",
-    hashtags: '#NewCollection #Summer #Fashion #Trend',
-    createdAt: '2 min ago',
-  },
-  {
-    id: 5,
-    platform: 'LinkedIn',
-    text: 'Q2 results are in and we exceeded our targets by 40%! Huge thanks to our incredible team and loyal customers. Here\'s to a bigger Q3! \uD83D\uDE80',
-    hashtags: '#BusinessGrowth #Q2Results #TeamWork',
-    createdAt: '2 min ago',
-  },
-  {
-    id: 6,
-    platform: 'Twitter',
-    text: "Can't believe how fast Q2 flew by! Here's a quick thread on what we learned and where we're headed. 🧵 1/5",
-    hashtags: '#StartupLife #GrowthHacking',
-    createdAt: '2 min ago',
-  },
+function mapApiPost(post) {
+  return {
+    id: post.id,
+    platform: post.platform,
+    text: post.content,
+    hashtags: '',
+    createdAt: post.created_at || 'Just now',
+    status: post.status || 'draft',
+    campaignId: post.campaign_id,
+  };
+}
+
+const publishStages = [
+  'Publishing to LinkedIn...',
+  'Connecting...',
+  'Posting...',
+  'Success.',
 ];
 
 export default function GeneratedPosts() {
-  const [posts, setPosts] = useState(DUMMY_POSTS);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const initialPosts = location.state?.posts || [];
+  const campaignId = location.state?.campaign?.id || initialPosts[0]?.campaignId;
+
+  const [posts, setPosts] = useState(initialPosts);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
   const [editingPost, setEditingPost] = useState(null);
-  const navigate = useNavigate();
-  const location = useLocation();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [publishStatus, setPublishStatus] = useState('');
+  const [publishingId, setPublishingId] = useState(null);
+  const timeoutRef = useRef([]);
 
   const campaignName = location.state?.campaign?.name;
+
+  useEffect(() => {
+    if (initialPosts.length > 0) return;
+    let isMounted = true;
+
+    setLoading(true);
+    api.getPosts()
+      .then((data) => {
+        if (!isMounted) return;
+        const mapped = (data.posts || []).map(mapApiPost);
+        setPosts(mapped);
+        setError('');
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setError('Failed to load posts.');
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [initialPosts.length]);
+
+  useEffect(() => {
+    return () => {
+      timeoutRef.current.forEach((t) => clearTimeout(t));
+      timeoutRef.current = [];
+    };
+  }, []);
 
   const handleDelete = (post) => {
     setPosts((prev) => prev.filter((p) => p.id !== post.id));
@@ -75,11 +91,40 @@ export default function GeneratedPosts() {
     setEditingPost(null);
   };
 
-  const filtered = posts.filter((p) => {
-    const matchPlatform = filter === 'All' || p.platform === filter;
-    const matchSearch = p.text.toLowerCase().includes(search.toLowerCase());
-    return matchPlatform && matchSearch;
-  });
+  const handlePublishLinkedin = async (post) => {
+    if (!campaignId) {
+      setError('Missing campaign id for publishing.');
+      return;
+    }
+
+    setPublishingId(post.id);
+    setError('');
+    setPublishStatus(publishStages[0]);
+
+    timeoutRef.current.push(setTimeout(() => setPublishStatus(publishStages[1]), 400));
+    timeoutRef.current.push(setTimeout(() => setPublishStatus(publishStages[2]), 900));
+
+    try {
+      await api.publishLinkedin({ content: post.text, campaign_id: campaignId });
+      setPublishStatus(publishStages[3]);
+      await api.getLinkedinFeed();
+      setPosts((prev) => prev.map((p) => (p.id === post.id ? { ...p, status: 'published' } : p)));
+      timeoutRef.current.push(setTimeout(() => setPublishStatus(''), 2000));
+    } catch {
+      setError('Failed to publish to LinkedIn.');
+      setPublishStatus('');
+    } finally {
+      setPublishingId(null);
+    }
+  };
+
+  const filtered = useMemo(() => {
+    return posts.filter((p) => {
+      const matchPlatform = filter === 'All' || p.platform === filter;
+      const matchSearch = p.text.toLowerCase().includes(search.toLowerCase());
+      return matchPlatform && matchSearch;
+    });
+  }, [filter, posts, search]);
 
   return (
     <div className="space-y-6">
@@ -98,6 +143,18 @@ export default function GeneratedPosts() {
           + Generate More
         </button>
       </div>
+
+      {publishStatus && (
+        <div className="px-4 py-3 bg-blue-50 border border-blue-100 rounded-lg text-sm text-blue-700">
+          {publishStatus}
+        </div>
+      )}
+
+      {error && (
+        <div className="px-4 py-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-600">
+          {error}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="card p-4 flex flex-col sm:flex-row gap-3">
@@ -129,8 +186,11 @@ export default function GeneratedPosts() {
         </div>
       </div>
 
-      {/* Posts Grid */}
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="text-center py-20 text-gray-400">
+          <p className="text-lg font-medium">Loading posts...</p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
           <p className="text-lg font-medium">No posts found</p>
           <p className="text-sm mt-1">Try adjusting your filters or generate new posts</p>
@@ -144,6 +204,7 @@ export default function GeneratedPosts() {
               onEdit={handleEdit}
               onSchedule={handleSchedule}
               onDelete={handleDelete}
+              onPublishLinkedin={post.id === publishingId ? null : handlePublishLinkedin}
             />
           ))}
         </div>

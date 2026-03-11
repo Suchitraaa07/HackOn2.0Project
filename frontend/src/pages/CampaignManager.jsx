@@ -1,22 +1,48 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CampaignCard from '../components/CampaignCard';
 import { Search, Filter, PlusCircle } from 'lucide-react';
-
-const INITIAL_CAMPAIGNS = [
-  { id: 1, name: 'Summer Sale 2026', goal: 'Sales & Conversions', platform: 'Instagram', postsCount: 12, status: 'Active', engagement: '7.4%' },
-  { id: 2, name: 'Q2 Product Launch', goal: 'Product Launch', platform: 'LinkedIn', postsCount: 8, status: 'Active', engagement: '6.1%' },
-  { id: 3, name: 'Community Spotlight', goal: 'Community Engagement', platform: 'Multi', postsCount: 20, status: 'Paused', engagement: '5.8%' },
-  { id: 4, name: 'Brand Awareness Q1', goal: 'Brand Awareness', platform: 'Twitter', postsCount: 15, status: 'Completed', engagement: '4.9%' },
-  { id: 5, name: 'Flash Sale Weekend', goal: 'Sales & Conversions', platform: 'Instagram', postsCount: 5, status: 'Active', engagement: '8.2%' },
-  { id: 6, name: 'Thought Leadership', goal: 'Brand Awareness', platform: 'LinkedIn', postsCount: 10, status: 'Draft', engagement: '—' },
-];
+import { api } from '../services/api';
 
 export default function CampaignManager() {
-  const [campaigns, setCampaigns] = useState(INITIAL_CAMPAIGNS);
+  const [campaigns, setCampaigns] = useState([]);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let isMounted = true;
+    setLoading(true);
+    api.getCampaigns()
+      .then((data) => {
+        if (!isMounted) return;
+        const mapped = (data.campaigns || []).map((c) => ({
+          id: c.id,
+          name: c.campaign_name,
+          goal: c.goal,
+          platform: c.platform,
+          postsCount: c.posts_count || 0,
+          status: c.status || 'Active',
+          engagement: c.engagement || '-',
+        }));
+        setCampaigns(mapped);
+        setError('');
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setError('Failed to load campaigns.');
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleDelete = (campaign) => {
     setCampaigns((prev) => prev.filter((c) => c.id !== campaign.id));
@@ -32,15 +58,17 @@ export default function CampaignManager() {
     );
   };
 
-  const handleViewAnalytics = () => {
-    navigate('/analytics');
+  const handleViewAnalytics = (campaign) => {
+    navigate('/analytics', { state: { campaignId: campaign?.id } });
   };
 
-  const filtered = campaigns.filter((c) => {
-    const matchStatus = filter === 'All' || c.status === filter;
-    const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
-    return matchStatus && matchSearch;
-  });
+  const filtered = useMemo(() => {
+    return campaigns.filter((c) => {
+      const matchStatus = filter === 'All' || c.status === filter;
+      const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
+      return matchStatus && matchSearch;
+    });
+  }, [campaigns, filter, search]);
 
   const statusCounts = {
     All: campaigns.length,
@@ -66,6 +94,12 @@ export default function CampaignManager() {
           New Campaign
         </button>
       </div>
+
+      {error && (
+        <div className="px-4 py-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-600">
+          {error}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="card p-4 flex flex-col sm:flex-row gap-3">
@@ -101,7 +135,11 @@ export default function CampaignManager() {
       </div>
 
       {/* Cards Grid */}
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="text-center py-20 text-gray-400">
+          <p className="text-lg font-medium">Loading campaigns...</p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
           <p className="text-lg font-medium">No campaigns found</p>
           <p className="text-sm mt-1">Try a different filter or create a new one</p>

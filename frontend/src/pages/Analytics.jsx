@@ -1,25 +1,102 @@
+import { useEffect, useMemo, useState } from 'react';
 import { ThumbsUp, MessageCircle, Share2, TrendingUp } from 'lucide-react';
-import AnalyticsCharts, { EngagementLineChart, BestPostingTimeChart } from '../components/AnalyticsCharts';
-
-const metricsData = [
-  { label: 'Total Likes', value: '24,381', change: '+12%', color: 'bg-pink-50 text-pink-600', icon: ThumbsUp },
-  { label: 'Total Comments', value: '8,204', change: '+8%', color: 'bg-yellow-50 text-yellow-600', icon: MessageCircle },
-  { label: 'Total Shares', value: '3,942', change: '+15%', color: 'bg-green-50 text-green-600', icon: Share2 },
-  { label: 'Avg. Engagement', value: '6.8%', change: '+1.2%', color: 'bg-indigo-50 text-indigo-600', icon: TrendingUp },
-];
-
-const platformBreakdown = [
-  { platform: 'Instagram', likes: 12400, comments: 4100, shares: 2100, engagement: '7.2%' },
-  { platform: 'LinkedIn', likes: 8200, comments: 2800, shares: 1300, engagement: '6.1%' },
-  { platform: 'Twitter', likes: 3781, comments: 1304, shares: 542, engagement: '5.8%' },
-];
+import { useLocation } from 'react-router-dom';
+import { EngagementLineChart, BestPostingTimeChart } from '../components/AnalyticsCharts';
+import { api } from '../services/api';
 
 export default function Analytics() {
+  const location = useLocation();
+  const presetCampaignId = location.state?.campaignId;
+
+  const [campaigns, setCampaigns] = useState([]);
+  const [campaignId, setCampaignId] = useState(presetCampaignId || '');
+  const [summary, setSummary] = useState(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.getCampaigns()
+      .then((data) => {
+        if (!isMounted) return;
+        const list = data.campaigns || [];
+        setCampaigns(list);
+        if (!campaignId && list[0]?.id) {
+          setCampaignId(list[0].id);
+        }
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setError('Failed to load campaigns.');
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [campaignId]);
+
+  useEffect(() => {
+    if (!campaignId) return;
+    let isMounted = true;
+    setLoading(true);
+    api.getAnalytics(campaignId)
+      .then((data) => {
+        if (!isMounted) return;
+        setSummary(data);
+        setError('');
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setError('Failed to load analytics.');
+        setSummary(null);
+      })
+      .finally(() => {
+        if (!isMounted) return;
+        setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [campaignId]);
+
+  const metricsData = useMemo(() => {
+    if (!summary) return [];
+    return [
+      { label: 'Total Likes', value: summary.total_likes.toLocaleString(), change: '-', color: 'bg-pink-50 text-pink-600', icon: ThumbsUp },
+      { label: 'Total Comments', value: summary.total_comments.toLocaleString(), change: '-', color: 'bg-yellow-50 text-yellow-600', icon: MessageCircle },
+      { label: 'Total Shares', value: summary.total_shares.toLocaleString(), change: '-', color: 'bg-green-50 text-green-600', icon: Share2 },
+      { label: 'Engagement Rate', value: `${(summary.engagement_rate * 100).toFixed(2)}%`, change: '-', color: 'bg-indigo-50 text-indigo-600', icon: TrendingUp },
+    ];
+  }, [summary]);
+
   return (
     <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <label className="text-sm font-medium text-gray-700">Campaign</label>
+        <select
+          value={campaignId}
+          onChange={(e) => setCampaignId(e.target.value)}
+          className="input-field max-w-xs"
+        >
+          <option value="">Select a campaign...</option>
+          {campaigns.map((c) => (
+            <option key={c.id} value={c.id}>{c.campaign_name}</option>
+          ))}
+        </select>
+      </div>
+
+      {error && (
+        <div className="px-4 py-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
       {/* Metrics Row */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        {metricsData.map(({ label, value, change, color, icon: Icon }) => (
+        {metricsData.length === 0 && !loading ? (
+          <div className="text-sm text-gray-400">No analytics available.</div>
+        ) : metricsData.map(({ label, value, change, color, icon: Icon }) => (
           <div key={label} className="card p-5">
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-gray-500 font-medium">{label}</p>
@@ -28,7 +105,7 @@ export default function Analytics() {
               </div>
             </div>
             <p className="text-2xl font-bold text-gray-900">{value}</p>
-            <p className="text-xs text-green-600 font-medium mt-1">{change} this month</p>
+            <p className="text-xs text-gray-400 font-medium mt-1">{change}</p>
           </div>
         ))}
       </div>
@@ -57,29 +134,8 @@ export default function Analytics() {
         <div className="px-5 py-4 border-b border-gray-50">
           <h3 className="text-sm font-semibold text-gray-900">Platform Breakdown</h3>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-50">
-                <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Platform</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Likes</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Comments</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Shares</th>
-                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Engagement</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {platformBreakdown.map((row) => (
-                <tr key={row.platform} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-5 py-3 text-sm font-medium text-gray-800">{row.platform}</td>
-                  <td className="px-5 py-3 text-sm text-right text-gray-600">{row.likes.toLocaleString()}</td>
-                  <td className="px-5 py-3 text-sm text-right text-gray-600">{row.comments.toLocaleString()}</td>
-                  <td className="px-5 py-3 text-sm text-right text-gray-600">{row.shares.toLocaleString()}</td>
-                  <td className="px-5 py-3 text-sm text-right font-semibold text-indigo-600">{row.engagement}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="p-5 text-sm text-gray-400">
+          Detailed platform analytics will appear here once available.
         </div>
       </div>
     </div>

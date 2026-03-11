@@ -1,11 +1,9 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 async function request(endpoint, options = {}) {
-  const token = localStorage.getItem('token');
   const config = {
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
     ...options,
@@ -13,41 +11,41 @@ async function request(endpoint, options = {}) {
 
   const response = await fetch(`${BASE_URL}${endpoint}`, config);
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Request failed' }));
-    throw new Error(error.message || 'Request failed');
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+    const message = error.detail || error.message || 'Request failed';
+    throw new Error(message);
   }
   return response.json();
 }
 
 export const api = {
-  // Auth
-  login: (credentials) =>
-    request('/auth/login', { method: 'POST', body: JSON.stringify(credentials) }),
-  signup: (data) =>
-    request('/auth/signup', { method: 'POST', body: JSON.stringify(data) }),
-
   // Campaigns
   getCampaigns: () => request('/campaigns'),
   createCampaign: (data) =>
-    request('/campaigns', { method: 'POST', body: JSON.stringify(data) }),
-  deleteCampaign: (id) => request(`/campaigns/${id}`, { method: 'DELETE' }),
-  updateCampaign: (id, data) =>
-    request(`/campaigns/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    request('/campaign', { method: 'POST', body: JSON.stringify(data) }),
 
   // Posts
-  generatePosts: (data) =>
-    request('/generate-posts', { method: 'POST', body: JSON.stringify(data) }),
+  generatePost: (data) =>
+    request('/generate-post', { method: 'POST', body: JSON.stringify(data) }),
+  createPost: (data) =>
+    request('/post', { method: 'POST', body: JSON.stringify(data) }),
   getPosts: () => request('/posts'),
-  deletePost: (id) => request(`/posts/${id}`, { method: 'DELETE' }),
-  updatePost: (id, data) =>
-    request(`/posts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  publishPost: (data) =>
+    request('/publish-post', { method: 'POST', body: JSON.stringify(data) }),
+
+  // LinkedIn (simulated)
+  publishLinkedin: (data) =>
+    request('/publish/linkedin', { method: 'POST', body: JSON.stringify(data) }),
+  getLinkedinFeed: () => request('/feed/linkedin'),
 
   // Scheduler
   schedulePost: (data) =>
-    request('/schedule', { method: 'POST', body: JSON.stringify(data) }),
-  getScheduled: () => request('/schedule'),
+    request('/schedule-post', { method: 'POST', body: JSON.stringify(data) }),
 
   // Analytics
-  getAnalytics: (campaignId) =>
-    request(`/analytics${campaignId ? `?campaignId=${campaignId}` : ''}`),
+  getAnalytics: (campaignId) => request(`/analytics/${campaignId}`),
+
+  // Metrics
+  saveMetrics: (data) =>
+    request('/metrics', { method: 'POST', body: JSON.stringify(data) }),
 };

@@ -8,6 +8,7 @@ import Scheduler from './pages/Scheduler';
 import Analytics from './pages/Analytics';
 import CampaignManager from './pages/CampaignManager';
 import Settings from './pages/Settings';
+import LinkedinFeed from './pages/LinkedinFeed';
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
           <Route path="scheduler" element={<Scheduler />} />
           <Route path="analytics" element={<Analytics />} />
           <Route path="campaigns" element={<CampaignManager />} />
+          <Route path="linkedin-feed" element={<LinkedinFeed />} />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

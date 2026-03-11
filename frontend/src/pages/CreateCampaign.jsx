@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Instagram, Twitter, Linkedin, Loader2 } from 'lucide-react';
+import { api } from '../services/api';
 
 const PLATFORMS = [
   { id: 'Instagram', icon: Instagram, color: 'border-pink-200 bg-pink-50 text-pink-600' },
@@ -57,11 +58,55 @@ export default function CreateCampaign() {
 
     setLoading(true);
     try {
-      // Simulate POST /generate-posts — replace with: await api.generatePosts(form)
-      await new Promise((r) => setTimeout(r, 2000));
-      navigate('/generated-posts', { state: { campaign: form } });
+      const primaryPlatform = form.platforms[0];
+      const campaignPayload = {
+        campaign_name: form.name,
+        platform: primaryPlatform,
+        audience: form.audience,
+        goal: form.goal,
+        tone: form.tone,
+      };
+
+      const campaignResponse = await api.createCampaign(campaignPayload);
+      const campaignRecord = Array.isArray(campaignResponse.data)
+        ? campaignResponse.data[0]
+        : campaignResponse.data;
+      const campaignId = campaignRecord?.id;
+
+      if (!campaignId) {
+        throw new Error('Campaign could not be created.');
+      }
+
+      const generated = await Promise.all(
+        form.platforms.map((platform) =>
+          api.generatePost({
+            ...campaignPayload,
+            campaign_id: campaignId,
+            campaign_name: form.name,
+            platform,
+          })
+        )
+      );
+
+      const nowLabel = new Date().toLocaleString();
+      const posts = generated.map((result, index) => {
+        const saved = Array.isArray(result.saved_post) ? result.saved_post[0] : result.saved_post;
+        const platform = form.platforms[index];
+        return {
+          id: saved?.id || `${campaignId}-${index + 1}`,
+          platform: saved?.platform || platform,
+          text: result.generated_post,
+          hashtags: '',
+          createdAt: nowLabel,
+          status: saved?.status || 'draft',
+        };
+      });
+
+      navigate('/generated-posts', {
+        state: { campaign: { ...form, id: campaignId }, posts },
+      });
     } catch {
-      setError('Failed to generate posts. Please try again.');
+      setError('Failed to generate or publish posts. Please try again.');
     } finally {
       setLoading(false);
     }

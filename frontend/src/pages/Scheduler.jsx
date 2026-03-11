@@ -1,19 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, CheckCircle2, Instagram, Twitter, Linkedin, Clock } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
-
-const DUMMY_POSTS = [
-  { id: 1, text: '☀️ Summer sale is LIVE! 30% off everything.', platform: 'Instagram' },
-  { id: 2, text: 'Exciting Q2 results — we exceeded targets by 40%!', platform: 'LinkedIn' },
-  { id: 3, text: 'Big news coming this week. Stay tuned! 👀', platform: 'Twitter' },
-  { id: 4, text: 'New collection drop this Friday. Be ready!', platform: 'Instagram' },
-];
-
-const SCHEDULED = [
-  { id: 1, text: 'Product launch announcement!', platform: 'LinkedIn', date: '2026-03-11', time: '09:00', status: 'Scheduled' },
-  { id: 2, text: 'Weekend offer — 20% off for 48 hours!', platform: 'Instagram', date: '2026-03-12', time: '18:00', status: 'Scheduled' },
-  { id: 3, text: 'Thank you for 10K followers!', platform: 'Twitter', date: '2026-03-10', time: '12:00', status: 'Published' },
-];
+import { api } from '../services/api';
 
 const platformIcon = { Instagram, Twitter, LinkedIn: Linkedin };
 const platformColors = {
@@ -26,39 +14,78 @@ export default function Scheduler() {
   const location = useLocation();
   const preselectedPost = location.state?.post;
 
+  const [posts, setPosts] = useState(preselectedPost ? [preselectedPost] : []);
   const [form, setForm] = useState({
     postId: preselectedPost?.id || '',
     date: '',
     time: '',
     platform: preselectedPost?.platform || '',
   });
-  const [scheduled, setScheduled] = useState(SCHEDULED);
+  const [scheduled, setScheduled] = useState([]);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (preselectedPost) return;
+    let isMounted = true;
+
+    api.getPosts()
+      .then((data) => {
+        if (!isMounted) return;
+        const mapped = (data.posts || []).map((p) => ({
+          id: p.id,
+          text: p.content,
+          platform: p.platform,
+        }));
+        setPosts(mapped);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setError('Failed to load posts.');
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [preselectedPost]);
 
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
     setSuccess(false);
+    setError('');
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.postId || !form.date || !form.time || !form.platform) return;
 
-    const post = DUMMY_POSTS.find((p) => p.id === Number(form.postId));
-    setScheduled((prev) => [
-      {
-        id: Date.now(),
-        text: post?.text || 'Custom post',
-        platform: form.platform,
-        date: form.date,
-        time: form.time,
-        status: 'Scheduled',
-      },
-      ...prev,
-    ]);
-    setSuccess(true);
-    setForm({ postId: '', date: '', time: '', platform: '' });
+    const runTime = new Date(`${form.date}T${form.time}:00`).toISOString();
+
+    try {
+      await api.schedulePost({ post_id: Number(form.postId), run_time: runTime });
+      const post = posts.find((p) => p.id === Number(form.postId));
+      setScheduled((prev) => [
+        {
+          id: Date.now(),
+          text: post?.text || 'Custom post',
+          platform: form.platform,
+          date: form.date,
+          time: form.time,
+          status: 'Scheduled',
+        },
+        ...prev,
+      ]);
+      setSuccess(true);
+      setForm({ postId: '', date: '', time: '', platform: '' });
+    } catch {
+      setError('Failed to schedule post.');
+    }
   };
+
+  const scheduledCount = useMemo(
+    () => scheduled.filter((s) => s.status === 'Scheduled').length,
+    [scheduled]
+  );
 
   return (
     <div className="space-y-6">
@@ -79,6 +106,12 @@ export default function Scheduler() {
             </div>
           )}
 
+          {error && (
+            <div className="mb-4 px-3 py-2.5 bg-red-50 border border-red-100 rounded-lg text-sm text-red-600">
+              {error}
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="label">Select Post *</label>
@@ -88,7 +121,7 @@ export default function Scheduler() {
                 className="input-field"
               >
                 <option value="">Choose a post...</option>
-                {DUMMY_POSTS.map((p) => (
+                {posts.map((p) => (
                   <option key={p.id} value={p.id}>
                     [{p.platform}] {p.text.slice(0, 50)}...
                   </option>
@@ -142,30 +175,34 @@ export default function Scheduler() {
         <div className="card xl:col-span-2">
           <div className="px-5 py-4 border-b border-gray-50">
             <h3 className="text-sm font-bold text-gray-900">Scheduled Queue</h3>
-            <p className="text-xs text-gray-400 mt-0.5">{scheduled.filter(s => s.status === 'Scheduled').length} posts pending</p>
+            <p className="text-xs text-gray-400 mt-0.5">{scheduledCount} posts pending</p>
           </div>
           <div className="divide-y divide-gray-50">
-            {scheduled.map((item) => {
-              const Icon = platformIcon[item.platform] || Instagram;
-              return (
-                <div key={item.id} className="px-5 py-4 flex items-center gap-4">
-                  <div className={`w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center ${platformColors[item.platform]}`}>
-                    <Icon size={16} />
+            {scheduled.length === 0 ? (
+              <div className="px-5 py-10 text-sm text-gray-400">No scheduled posts yet.</div>
+            ) : (
+              scheduled.map((item) => {
+                const Icon = platformIcon[item.platform] || Instagram;
+                return (
+                  <div key={item.id} className="px-5 py-4 flex items-center gap-4">
+                    <div className={`w-8 h-8 rounded-lg bg-gray-50 flex items-center justify-center ${platformColors[item.platform]}`}>
+                      <Icon size={16} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-800 truncate">{item.text}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{item.platform} - {item.date} at {item.time}</p>
+                    </div>
+                    <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
+                      item.status === 'Published'
+                        ? 'bg-green-50 text-green-700'
+                        : 'bg-indigo-50 text-indigo-700'
+                    }`}>
+                      {item.status}
+                    </span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-800 truncate">{item.text}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{item.platform} · {item.date} at {item.time}</p>
-                  </div>
-                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                    item.status === 'Published'
-                      ? 'bg-green-50 text-green-700'
-                      : 'bg-indigo-50 text-indigo-700'
-                  }`}>
-                    {item.status}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
       </div>

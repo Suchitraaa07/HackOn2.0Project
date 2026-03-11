@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from app.models.campaign_model import Campaign
 from app.database.supabase_client import supabase
 from pydantic import BaseModel
@@ -6,15 +7,36 @@ from datetime import datetime
 from app.models.metrics_model import Metrics
 from app.models.post_model import Post
 from app.services.ai_service import generate_post
+from app.services.twitter_service import publish_tweet
 from scheduler import start_scheduler, scheduler, publish_post
+from routes.publish import router as publish_router
 
-class Post(BaseModel):
-    campaign_id: int
+class SchedulePostRequest(BaseModel):
+    post_id: int
+    run_time: str
+
+class GeneratePostRequest(BaseModel):
+    campaign_id: int | None = None
+    campaign_name: str
     platform: str
-    content: str
-    status: str
+    audience: str
+    goal: str
+    tone: str
+
+class PublishPostRequest(BaseModel):
+    post_id: int
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(publish_router)
 
 @app.get("/")
 def root():
@@ -64,27 +86,33 @@ def create_post(post: Post):
     }
 
 @app.post("/generate-post")
-def generate_ai_post(campaign: Campaign):
+def generate_ai_post(payload: GeneratePostRequest):
 
-    content = generate_post(
-        campaign.goal,
-        campaign.platform,
-        campaign.audience,
-        campaign.tone
-    )
+    try:
+        content = generate_post(
+            payload.goal,
+            payload.platform,
+            payload.audience,
+            payload.tone,
+            campaign_name=payload.campaign_name,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    data = {
-        "campaign_id": 1,
-        "platform": campaign.platform,
-        "content": content,
-        "status": "draft"
-    }
-
-    response = supabase.table("posts").insert(data).execute()
+    saved_post = None
+    if payload.campaign_id is not None:
+        data = {
+            "campaign_id": payload.campaign_id,
+            "platform": payload.platform,
+            "content": content,
+            "status": "draft"
+        }
+        response = supabase.table("posts").insert(data).execute()
+        saved_post = response.data
 
     return {
         "generated_post": content,
-        "saved_post": response.data
+        "saved_post": saved_post
     }
 
 @app.get("/posts")
@@ -101,21 +129,47 @@ def start_background_scheduler():
     start_scheduler()
 
 @app.post("/schedule-post")
-def schedule_post(post_id: int, run_time: str):
+def schedule_post(payload: SchedulePostRequest):
 
+    run_time = payload.run_time.replace("Z", "+00:00")
     run_date = datetime.fromisoformat(run_time)
 
     scheduler.add_job(
         publish_post,
         'date',
         run_date=run_date,
-        args=[post_id]
+        args=[payload.post_id]
     )
 
     return {
         "message": "Post scheduled",
-        "post_id": post_id,
-        "run_time": run_time
+        "post_id": payload.post_id,
+        "run_time": payload.run_time
+    }
+
+@app.post("/publish-post")
+def publish_post_now(payload: PublishPostRequest):
+    response = supabase.table("posts").select("*").eq("id", payload.post_id).execute()
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    post = response.data[0]
+    platform = (post.get("platform") or "").lower()
+    if platform != "twitter":
+        raise HTTPException(status_code=400, detail="Platform not supported for publishing yet")
+
+    try:
+        tweet_id = publish_tweet(post.get("content", ""))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    supabase.table("posts").update({"status": "published"}).eq("id", payload.post_id).execute()
+
+    return {
+        "message": "Post published",
+        "platform": post.get("platform"),
+        "post_id": payload.post_id,
+        "tweet_id": tweet_id,
     }
 
 @app.post("/metrics")

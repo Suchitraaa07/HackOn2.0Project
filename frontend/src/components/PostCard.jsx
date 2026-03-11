@@ -1,4 +1,4 @@
-import { Instagram, Twitter, Linkedin, Edit3, Calendar, Trash2 } from 'lucide-react';
+import { Instagram, Twitter, Linkedin, Edit3, Calendar, Trash2, Send } from 'lucide-react';
 
 const PlatformIcon = ({ platform }) => {
   const map = {
@@ -16,7 +16,7 @@ const PlatformIcon = ({ platform }) => {
   );
 };
 
-export default function PostCard({ post, onEdit, onSchedule, onDelete }) {
+export default function PostCard({ post, onEdit, onSchedule, onDelete, onPublishLinkedin }) {
   return (
     <div className="card p-5 flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
@@ -42,6 +42,14 @@ export default function PostCard({ post, onEdit, onSchedule, onDelete }) {
         >
           <Calendar size={13} /> Schedule
         </button>
+        {post.platform === 'LinkedIn' && (
+          <button
+            onClick={() => onPublishLinkedin && onPublishLinkedin(post)}
+            className="flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors ml-2"
+          >
+            <Send size={13} /> Publish to LinkedIn
+          </button>
+        )}
         <button
           onClick={() => onDelete && onDelete(post)}
           className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-red-500 transition-colors ml-auto"

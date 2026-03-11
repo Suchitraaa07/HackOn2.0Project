@@ -8,6 +8,7 @@ import {
   Briefcase,
   Settings,
   Zap,
+  Linkedin,
 } from 'lucide-react';
 
 const navItems = [
@@ -17,6 +18,7 @@ const navItems = [
   { to: '/scheduler', icon: CalendarClock, label: 'Scheduler' },
   { to: '/analytics', icon: BarChart2, label: 'Analytics' },
   { to: '/campaigns', icon: Briefcase, label: 'Campaigns' },
+  { to: '/linkedin-feed', icon: Linkedin, label: 'LinkedIn Feed' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
